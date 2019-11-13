@@ -8,10 +8,13 @@ use DH\DoctrineAuditBundle\Exception\AccessDeniedException;
 use DH\DoctrineAuditBundle\Exception\InvalidArgumentException;
 use DH\DoctrineAuditBundle\User\UserInterface;
 use Doctrine\Common\Persistence\Mapping\ClassMetadata;
+use Doctrine\DBAL\DBALException;
 use Doctrine\DBAL\Query\QueryBuilder;
 use Doctrine\DBAL\Statement;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata as ORMMetadata;
+use Doctrine\ORM\Query\ResultSetMapping;
+use Doctrine\ORM\Query\ResultSetMappingBuilder;
 use Pagerfanta\Adapter\DoctrineDbalSingleTableAdapter;
 use Pagerfanta\Pagerfanta;
 use Symfony\Component\Security\Core\Security as CoreSecurity;
@@ -143,6 +146,72 @@ class AuditReader
         $statement->setFetchMode(\PDO::FETCH_CLASS, AuditEntry::class);
 
         return $statement->fetchAll();
+    }
+
+    /**
+     * Returns an array of audited entries/operations.
+     *
+     * @param object|string $entity
+     * @param int|string $id
+     * @param null|int $page
+     * @param null|int $pageSize
+     * @param null|string $transactionHash
+     * @param bool $strict
+     *
+     * @return array
+     * @throws AccessDeniedException
+     * @throws InvalidArgumentException*@throws \Doctrine\DBAL\DBALException
+     * @throws DBALException
+     *
+     */
+    public function getAuditsWithAssociations($entity, $id, ?int $page = null, ?int $pageSize = null, ?string $transactionHash = null, bool $strict = true): array
+    {
+        $this->checkAuditable($entity);
+        $this->checkRoles($entity, Security::VIEW_SCOPE);
+
+        $meta = $this->getClassMetadata($entity);
+
+        /** @var QueryBuilder[] $queryBuilders */
+        $queryBuilders = [];
+
+        $queryBuilders[] = $this->getAuditsQueryBuilder($entity, $id, null, null, $transactionHash, $strict)->addSelect("'$entity' as class");;
+
+        foreach ($meta->getAssociationNames() as $associationName) {
+            $targetClass = $meta->getAssociationTargetClass($associationName);
+            if ($this->configuration->isAuditable($targetClass)) {
+                $mappedBy = $meta->getAssociationMappedByTargetField($associationName);
+                $qb = $this->getAuditsQueryBuilder($targetClass, null, null, null, $transactionHash, $strict);
+                $qb->addSelect("'$targetClass' as class");
+                $qb
+                    ->andWhere("diffs -> '$mappedBy' -> 'old' ->> 'id' = :object_id OR diffs -> '$mappedBy' -> 'new' ->> 'id' = :object_id")
+                ;
+                $queryBuilders[] = $qb;
+            }
+        }
+
+        $storage = $this->selectStorage();$connection = $storage->getConnection();
+        $sql = $this->unionAllQueryBuilders($queryBuilders);
+        if ($page && $pageSize) {
+            $offset = $page*$pageSize;
+            $sql .= " LIMIT {$pageSize} OFFSET $offset";
+        }
+        $statement = $connection->executeQuery($sql, ['object_id' => $id]);
+        $statement->setFetchMode(\PDO::FETCH_CLASS, AuditEntry::class);
+
+        return $statement->fetchAll();
+    }
+
+    /**
+     * @param array $queryBuilders
+     *
+     * @return string
+     */
+    private function unionAllQueryBuilders(array $queryBuilders)
+    {
+        $imploded = implode(') UNION ALL (', array_map(function (QueryBuilder $q) {
+            return $q->getSQL();
+        }, $queryBuilders));
+        return '('.$imploded.')';
     }
 
     /**

@@ -59,6 +59,11 @@ class AuditEntry
      */
     protected $created_at;
 
+    /**
+     * @var string
+     */
+    protected $class;
+
     public function __set($name, $value)
     {
         $this->{$name} = $value;
