@@ -125,10 +125,18 @@ final class AuditManagerTest extends CoreTest
         static::assertSame('dark.vador', $entry->getUsername(), 'audit entry blame_user is ok.');
         static::assertSame('1.2.3.4', $entry->getIp(), 'audit entry IP is ok.');
         static::assertEquals([
-            'label' => Author::class.'#1',
-            'class' => Author::class,
-            'table' => $em->getClassMetadata(Author::class)->getTableName(),
-            'id' => 1,
+            'id' => [
+                'old' => 1,
+                'new' => null,
+            ],
+            'email' => [
+                'old' => 'john.doe@gmail.com',
+                'new' => null,
+            ],
+            'fullname' => [
+                'old' => 'John Doe',
+                'new' => null,
+            ]
         ], $entry->getDiffs(), 'audit entry diffs is ok.');
     }
 

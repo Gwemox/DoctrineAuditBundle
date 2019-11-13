@@ -245,6 +245,39 @@ class AuditHelper
     }
 
     /**
+     * Returns an array containing the changes during a deletion.
+     *
+     * @param EntityManagerInterface $em
+     * @param object                 $entity
+     *
+     * @return array
+     */
+    public function getChangeSetWhenRemove(EntityManagerInterface $em, $entity): array
+    {
+        /** @var ClassMetadata $meta */
+        $meta = $em->getClassMetadata(\get_class($entity));
+        $values = [];
+
+        foreach ($meta->getAssociationNames() as $associationName) {
+            $value = $meta->getFieldValue($entity, $associationName);
+            if (null !== $value) {
+                $values[$associationName] = [$value, null];
+            }
+        }
+        foreach ($meta->getFieldNames() as $fieldName) {
+            $value = $meta->getFieldValue($entity, $fieldName);
+            if ('warning' === $fieldName) {
+                dd($value);
+            }
+            if (null !== $value) {
+                $values[$fieldName] = [$value, null];
+            }
+        }
+
+        return $values;
+    }
+
+    /**
      * Return columns of audit tables.
      *
      * @return array

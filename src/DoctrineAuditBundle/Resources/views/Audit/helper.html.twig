@@ -45,7 +45,7 @@
     {% endif %}
 
     <code><a href="{{ path('dh_doctrine_audit_show_entity_history', { 'entity': helper.namespaceToParam(entity), 'id': entry.object_id }) }}" class="code">{{ subject }}</a></code>
-    {% if source is defined and subject != source.label %}
+    {% if source is defined and source.label is defined and subject != source.label %}
     <em>({{ source.label }})</em>
     {% endif %}
     has been <b>{{ action }}</b>

@@ -141,7 +141,7 @@ class AuditManager
         $this->audit($em, [
             'action' => 'remove',
             'blame' => $this->helper->blame(),
-            'diff' => $this->helper->summarize($em, $entity, $id),
+            'diff' => $this->helper->diff($em, $entity, $this->helper->getChangeSetWhenRemove($em, $entity)),
             'table' => $meta->getTableName(),
             'schema' => $meta->getSchemaName(),
             'id' => $id,
