@@ -13,6 +13,8 @@ use Doctrine\DBAL\Query\QueryBuilder;
 use Doctrine\DBAL\Statement;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata as ORMMetadata;
+use Doctrine\ORM\Mapping\ClassMetadataInfo;
+use Doctrine\ORM\Mapping\MappingException;
 use Doctrine\ORM\Query\ResultSetMapping;
 use Doctrine\ORM\Query\ResultSetMappingBuilder;
 use Pagerfanta\Adapter\DoctrineDbalSingleTableAdapter;
@@ -162,6 +164,7 @@ class AuditReader
      * @throws AccessDeniedException
      * @throws InvalidArgumentException*@throws \Doctrine\DBAL\DBALException
      * @throws DBALException
+     * @throws MappingException
      *
      */
     public function getAuditsWithAssociations($entity, $id, ?int $page = null, ?int $pageSize = null, ?string $transactionHash = null, bool $strict = true): array
@@ -179,13 +182,19 @@ class AuditReader
         foreach ($meta->getAssociationNames() as $associationName) {
             $targetClass = $meta->getAssociationTargetClass($associationName);
             if ($this->configuration->isAuditable($targetClass)) {
-                $mappedBy = $meta->getAssociationMappedByTargetField($associationName);
-                $qb = $this->getAuditsQueryBuilder($targetClass, null, null, null, $transactionHash, $strict);
-                $qb->addSelect("'$targetClass' as class");
-                $qb
-                    ->andWhere("diffs -> '$mappedBy' -> 'old' ->> 'id' = :object_id OR diffs -> '$mappedBy' -> 'new' ->> 'id' = :object_id")
-                ;
-                $queryBuilders[] = $qb;
+                $targetMeta = $this->getClassMetadata($targetClass);
+                if ($targetMeta->hasField('id')) {
+                    $mappedBy = $meta->getAssociationMappedByTargetField($associationName);
+                    $columnName = $targetMeta->getSingleAssociationJoinColumnName($mappedBy);
+                    $tableName = $this->getEntityTableName($targetClass);
+                    $qb = $this->getAuditsQueryBuilder($targetClass, null, null, null, $transactionHash, $strict);
+                    $qb->addSelect("'$targetClass' as class");
+                    $qb
+                        ->andWhere("object_id IN (SELECT CAST(subQuery.id as VARCHAR) FROM $tableName subQuery WHERE subQuery.$columnName = :object_id) OR diffs -> '$mappedBy' -> 'old' ->> 'id' = :object_id OR diffs -> '$mappedBy' -> 'new' ->> 'id' = :object_id")
+                    ;
+                    //dump($qb->getSQL());
+                    $queryBuilders[] = $qb;
+                }
             }
         }
 
@@ -422,7 +431,7 @@ class AuditReader
      *
      * @return ClassMetadata
      */
-    private function getClassMetadata($entity): ClassMetadata
+    private function getClassMetadata($entity): ClassMetadataInfo
     {
         return $this->entityManager->getClassMetadata($entity);
     }
