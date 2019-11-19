@@ -11,7 +11,16 @@ class AuditLogger implements SQLLogger
      */
     private $flusher;
 
-    public function __construct(callable $flusher)
+    public function __construct(?callable $flusher = null)
+    {
+        $this->setFlusher($flusher);
+    }
+
+    /**
+     * Set the flusher closure
+     * @param callable|null $flusher
+     */
+    public function setFlusher(?callable $flusher)
     {
         $this->flusher = $flusher;
     }
@@ -22,7 +31,7 @@ class AuditLogger implements SQLLogger
     public function startQuery($sql, array $params = null, array $types = null)
     {
         // right before commit insert all audit entries
-        if ('"COMMIT"' === $sql) {
+        if ($this->flusher !== null && '"COMMIT"' === $sql) {
             \call_user_func($this->flusher);
         }
     }

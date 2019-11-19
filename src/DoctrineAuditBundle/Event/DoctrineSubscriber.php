@@ -46,8 +46,12 @@ class DoctrineSubscriber implements EventSubscriber
 
         // extend the SQL logger
         $this->loggerBackup = $em->getConnection()->getConfiguration()->getSQLLogger();
-        $auditLogger = new AuditLogger(function () use ($em, $transaction) {
+        $auditLogger = new AuditLogger();
+        $auditLogger->setFlusher(function () use ($em, $transaction, $auditLogger) {
             // flushes pending data
+            if ($this->loggerBackup instanceof AuditLoggerChain) {
+                $this->loggerBackup->removeLogger($auditLogger);
+            }
             $em->getConnection()->getConfiguration()->setSQLLogger($this->loggerBackup);
             $this->manager->process($transaction);
         });
