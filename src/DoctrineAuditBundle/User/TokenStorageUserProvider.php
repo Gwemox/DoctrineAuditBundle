@@ -2,6 +2,7 @@
 
 namespace DH\DoctrineAuditBundle\User;
 
+use Exception;
 use Symfony\Component\Security\Core\Authentication\Token\SwitchUserToken;
 use Symfony\Component\Security\Core\Role\SwitchUserRole;
 use Symfony\Component\Security\Core\Security;
@@ -23,7 +24,7 @@ class TokenStorageUserProvider implements UserProviderInterface
     {
         try {
             $token = $this->security->getToken();
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $token = null;
         }
 
@@ -56,9 +57,31 @@ class TokenStorageUserProvider implements UserProviderInterface
         return new User($id, $tokenUser->getUsername().$impersonation);
     }
 
+    /**
+     * @return null|Security
+     */
+    public function getSecurity(): ?Security
+    {
+        return $this->security;
+    }
+
     private function getImpersonatorUser()
     {
-        $roles = null === $this->security->getToken() ? [] : $this->security->getToken()->getRoles();
+        $token = $this->security->getToken();
+
+        // Symfony 5
+        if (class_exists('\Symfony\Component\Security\Core\Authentication\Token\SwitchUserToken')) {
+            if ($token instanceof SwitchUserToken) {
+                return $token->getOriginalToken()->getUser();
+            }
+        }
+
+        // Pre Symfony 5
+        $roles = [];
+        if (null !== $token) {
+            $roles = method_exists($token, 'getRoleNames') ? $token->getRoleNames() : $token->getRoles();
+        }
+
         foreach ($roles as $role) {
             if ($role instanceof SwitchUserRole) {
                 return $role->getSource()->getUser();
@@ -66,13 +89,5 @@ class TokenStorageUserProvider implements UserProviderInterface
         }
 
         return null;
-    }
-
-    /**
-     * @return null|Security
-     */
-    public function getSecurity(): ?Security
-    {
-        return $this->security;
     }
 }

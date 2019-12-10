@@ -5,6 +5,7 @@ namespace DH\DoctrineAuditBundle\Helper;
 use DH\DoctrineAuditBundle\AuditConfiguration;
 use DH\DoctrineAuditBundle\User\UserInterface;
 use Doctrine\DBAL\Types\Type;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata;
 
@@ -126,48 +127,6 @@ class AuditHelper
     }
 
     /**
-     * Type converts the input value and returns it.
-     *
-     * @param EntityManagerInterface $em
-     * @param Type                   $type
-     * @param mixed                  $value
-     *
-     * @throws \Doctrine\DBAL\DBALException
-     *
-     * @return mixed
-     */
-    private function value(EntityManagerInterface $em, Type $type, $value)
-    {
-        if (null === $value) {
-            return null;
-        }
-
-        $platform = $em->getConnection()->getDatabasePlatform();
-
-        switch ($type->getName()) {
-            case Type::BIGINT:
-                $convertedValue = (string) $value;
-
-                break;
-            case Type::INTEGER:
-            case Type::SMALLINT:
-                $convertedValue = (int) $value;
-
-                break;
-            case Type::DECIMAL:
-            case Type::FLOAT:
-            case Type::BOOLEAN:
-                $convertedValue = $type->convertToPHPValue($value, $platform);
-
-                break;
-            default:
-                $convertedValue = $type->convertToDatabaseValue($value, $platform);
-        }
-
-        return $convertedValue;
-    }
-
-    /**
      * Blames an audit operation.
      *
      * @return array
@@ -286,55 +245,55 @@ class AuditHelper
     {
         return [
             'id' => [
-                'type' => Type::INTEGER,
+                'type' => self::getDoctrineType('INTEGER'),
                 'options' => [
                     'autoincrement' => true,
                     'unsigned' => true,
                 ],
             ],
             'type' => [
-                'type' => Type::STRING,
+                'type' => self::getDoctrineType('STRING'),
                 'options' => [
                     'notnull' => true,
                     'length' => 10,
                 ],
             ],
             'object_id' => [
-                'type' => Type::STRING,
+                'type' => self::getDoctrineType('STRING'),
                 'options' => [
                     'notnull' => true,
                 ],
             ],
             'discriminator' => [
-                'type' => Type::STRING,
+                'type' => self::getDoctrineType('STRING'),
                 'options' => [
                     'default' => null,
                     'notnull' => false,
                 ],
             ],
             'transaction_hash' => [
-                'type' => Type::STRING,
+                'type' => self::getDoctrineType('STRING'),
                 'options' => [
                     'notnull' => false,
                     'length' => 40,
                 ],
             ],
             'diffs' => [
-                'type' => Type::JSON_ARRAY,
+                'type' => self::getDoctrineType('JSON'),
                 'options' => [
                     'default' => null,
                     'notnull' => false,
                 ],
             ],
             'blame_id' => [
-                'type' => Type::STRING,
+                'type' => self::getDoctrineType('STRING'),
                 'options' => [
                     'default' => null,
                     'notnull' => false,
                 ],
             ],
             'blame_user' => [
-                'type' => Type::STRING,
+                'type' => self::getDoctrineType('STRING'),
                 'options' => [
                     'default' => null,
                     'notnull' => false,
@@ -342,7 +301,7 @@ class AuditHelper
                 ],
             ],
             'blame_user_fqdn' => [
-                'type' => Type::STRING,
+                'type' => self::getDoctrineType('STRING'),
                 'options' => [
                     'default' => null,
                     'notnull' => false,
@@ -350,7 +309,7 @@ class AuditHelper
                 ],
             ],
             'blame_user_firewall' => [
-                'type' => Type::STRING,
+                'type' => self::getDoctrineType('STRING'),
                 'options' => [
                     'default' => null,
                     'notnull' => false,
@@ -358,7 +317,7 @@ class AuditHelper
                 ],
             ],
             'ip' => [
-                'type' => Type::STRING,
+                'type' => self::getDoctrineType('STRING'),
                 'options' => [
                     'default' => null,
                     'notnull' => false,
@@ -366,7 +325,7 @@ class AuditHelper
                 ],
             ],
             'created_at' => [
-                'type' => Type::DATETIME,
+                'type' => self::getDoctrineType('DATETIME_IMMUTABLE'),
                 'options' => [
                     'notnull' => true,
                 ],
@@ -415,5 +374,52 @@ class AuditHelper
     public static function namespaceToParam(string $entity): string
     {
         return str_replace('\\', '-', $entity);
+    }
+
+    /**
+     * Type converts the input value and returns it.
+     *
+     * @param EntityManagerInterface $em
+     * @param Type                   $type
+     * @param mixed                  $value
+     *
+     * @throws \Doctrine\DBAL\DBALException
+     *
+     * @return mixed
+     */
+    private function value(EntityManagerInterface $em, Type $type, $value)
+    {
+        if (null === $value) {
+            return null;
+        }
+
+        $platform = $em->getConnection()->getDatabasePlatform();
+
+        switch ($type->getName()) {
+            case self::getDoctrineType('BIGINT'):
+                $convertedValue = (string) $value;
+
+                break;
+            case self::getDoctrineType('INTEGER'):
+            case self::getDoctrineType('SMALLINT'):
+                $convertedValue = (int) $value;
+
+                break;
+            case self::getDoctrineType('DECIMAL'):
+            case self::getDoctrineType('FLOAT'):
+            case self::getDoctrineType('BOOLEAN'):
+                $convertedValue = $type->convertToPHPValue($value, $platform);
+
+                break;
+            default:
+                $convertedValue = $type->convertToDatabaseValue($value, $platform);
+        }
+
+        return $convertedValue;
+    }
+
+    private static function getDoctrineType(string $type): string
+    {
+        return \constant((class_exists(Types::class, false) ? Types::class : Type::class).'::'.$type);
     }
 }

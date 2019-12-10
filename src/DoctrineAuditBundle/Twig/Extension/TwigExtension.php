@@ -2,7 +2,7 @@
 
 namespace DH\DoctrineAuditBundle\Twig\Extension;
 
-use Symfony\Bridge\Doctrine\RegistryInterface;
+use Doctrine\Common\Persistence\ManagerRegistry;
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFilter;
 use Twig\TwigFunction;
@@ -10,6 +10,11 @@ use Twig\TwigFunction;
 class TwigExtension extends AbstractExtension
 {
     protected $doctrine;
+
+    public function __construct(ManagerRegistry $doctrine)
+    {
+        $this->doctrine = $doctrine;
+    }
 
     public function getFunctions(): array
     {
@@ -25,11 +30,6 @@ class TwigExtension extends AbstractExtension
         return [
             new TwigFilter('json_decode', 'json_decode'),
         ];
-    }
-
-    public function __construct(RegistryInterface $doctrine)
-    {
-        $this->doctrine = $doctrine;
     }
 
     public function findUser($id, $repository)

@@ -1,7 +1,8 @@
 {% extends "@DHDoctrineAudit/layout.html.twig" %}
 
-{% import '@DHDoctrineAudit/Audit/bootstrap.html.twig' as bootstrap %}
-{% import '@DHDoctrineAudit/Audit/helper.html.twig' as helper %}
+{% import '@DHDoctrineAudit/Audit/helpers/bootstrap.html.twig' as bootstrap %}
+{% import '@DHDoctrineAudit/Audit/helpers/helper.html.twig' as helper %}
+{% import '@DHDoctrineAudit/Audit/helpers/pager.html.twig' as pager %}
 
 {% block dh_doctrine_audit_content %}
 <div class="card border-0">
@@ -17,19 +18,15 @@
         </nav>
 
         <h4 class="card-title float-left"><code>{{ entity }}{% if id is not null %}#{{ id }}{% endif %}</code> <em>(most recent first)</em></h4>
-        <h5 class="float-right">{{ bootstrap.badge(entries|length ~ ' operations', 'primary') }}</h5>
+        <h5 class="float-right">{{ bootstrap.badge(paginator.results|length ~ ' operations', 'primary') }}</h5>
 
         <div class="timeline-centered">
-        {% for entry in entries %}
+        {% for entry in paginator.results %}
             {{ include('@DHDoctrineAudit/Audit/entry.html.twig', {'entry': entry}) }}
         {% endfor %}
         </div>
 
-        {% if entries.haveToPaginate() %}
-        <div class="pagerfanta float-right">
-            {{ pagerfanta(entries, 'twitter_bootstrap4') }}
-        </div>
-        {% endif %}
+        {{ pager.render(entity, paginator) }}
     </div>
 </div>
 {% endblock dh_doctrine_audit_content %}

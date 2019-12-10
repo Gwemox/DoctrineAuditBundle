@@ -9,16 +9,14 @@ use DH\DoctrineAuditBundle\Exception\InvalidArgumentException;
 use DH\DoctrineAuditBundle\User\UserInterface;
 use Doctrine\Common\Persistence\Mapping\ClassMetadata;
 use Doctrine\DBAL\DBALException;
+use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Query\QueryBuilder;
 use Doctrine\DBAL\Statement;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata as ORMMetadata;
 use Doctrine\ORM\Mapping\ClassMetadataInfo;
 use Doctrine\ORM\Mapping\MappingException;
-use Doctrine\ORM\Query\ResultSetMapping;
-use Doctrine\ORM\Query\ResultSetMappingBuilder;
-use Pagerfanta\Adapter\DoctrineDbalSingleTableAdapter;
-use Pagerfanta\Pagerfanta;
+use PDO;
 use Symfony\Component\Security\Core\Security as CoreSecurity;
 
 class AuditReader
@@ -42,9 +40,9 @@ class AuditReader
     private $entityManager;
 
     /**
-     * @var ?string
+     * @var array
      */
-    private $filter;
+    private $filters = [];
 
     /**
      * AuditReader constructor.
@@ -69,19 +67,19 @@ class AuditReader
     }
 
     /**
-     * Set the filter for AuditEntry retrieving.
+     * Set the filter(s) for AuditEntry retrieving.
      *
-     * @param string $filter
+     * @param array|string $filter
      *
      * @return AuditReader
      */
-    public function filterBy(string $filter): self
+    public function filterBy($filter): self
     {
-        if (!\in_array($filter, [self::UPDATE, self::ASSOCIATE, self::DISSOCIATE, self::INSERT, self::REMOVE], true)) {
-            $this->filter = null;
-        } else {
-            $this->filter = $filter;
-        }
+        $filters = \is_array($filter) ? $filter : [$filter];
+
+        $this->filters = array_filter($filters, static function ($f) {
+            return \in_array($f, [self::UPDATE, self::ASSOCIATE, self::DISSOCIATE, self::INSERT, self::REMOVE], true);
+        });
 
         return $this;
     }
@@ -89,11 +87,11 @@ class AuditReader
     /**
      * Returns current filter.
      *
-     * @return null|string
+     * @return array
      */
-    public function getFilter(): ?string
+    public function getFilters(): array
     {
-        return $this->filter;
+        return $this->filters;
     }
 
     /**
@@ -124,7 +122,7 @@ class AuditReader
     /**
      * Returns an array of audited entries/operations.
      *
-     * @param object|string   $entity
+     * @param string          $entity
      * @param null|int|string $id
      * @param null|int        $page
      * @param null|int        $pageSize
@@ -136,7 +134,7 @@ class AuditReader
      *
      * @return array
      */
-    public function getAudits($entity, $id = null, ?int $page = null, ?int $pageSize = null, ?string $transactionHash = null, bool $strict = true): array
+    public function getAudits(string $entity, $id = null, ?int $page = null, ?int $pageSize = null, ?string $transactionHash = null, bool $strict = true): array
     {
         $this->checkAuditable($entity);
         $this->checkRoles($entity, Security::VIEW_SCOPE);
@@ -145,7 +143,7 @@ class AuditReader
 
         /** @var Statement $statement */
         $statement = $queryBuilder->execute();
-        $statement->setFetchMode(\PDO::FETCH_CLASS, AuditEntry::class);
+        $statement->setFetchMode(PDO::FETCH_CLASS, AuditEntry::class);
 
         return $statement->fetchAll();
     }
@@ -256,7 +254,7 @@ class AuditReader
     /**
      * Returns an array of audited entries/operations.
      *
-     * @param object|string   $entity
+     * @param string          $entity
      * @param null|int|string $id
      * @param int             $page
      * @param int             $pageSize
@@ -264,27 +262,35 @@ class AuditReader
      * @throws AccessDeniedException
      * @throws InvalidArgumentException
      *
-     * @return Pagerfanta
+     * @return array
      */
-    public function getAuditsPager($entity, $id = null, int $page = 1, int $pageSize = self::PAGE_SIZE): Pagerfanta
+    public function getAuditsPager(string $entity, $id = null, int $page = 1, int $pageSize = self::PAGE_SIZE): array
     {
-        $queryBuilder = $this->getAuditsQueryBuilder($entity, $id);
+        $queryBuilder = $this->getAuditsQueryBuilder($entity, $id, $page, $pageSize);
 
-        $adapter = new DoctrineDbalSingleTableAdapter($queryBuilder, 'at.id');
+        $paginator = new Paginator($queryBuilder);
+        $numResults = $paginator->count();
 
-        $pagerfanta = new Pagerfanta($adapter);
-        $pagerfanta
-            ->setMaxPerPage($pageSize)
-            ->setCurrentPage($page)
-        ;
+        $currentPage = $page < 1 ? 1 : $page;
+        $hasPreviousPage = $currentPage > 1;
+        $hasNextPage = ($currentPage * $pageSize) < $numResults;
 
-        return $pagerfanta;
+        return [
+            'results' => $paginator->getIterator(),
+            'currentPage' => $currentPage,
+            'hasPreviousPage' => $hasPreviousPage,
+            'hasNextPage' => $hasNextPage,
+            'previousPage' => $hasPreviousPage ? $currentPage - 1 : null,
+            'nextPage' => $hasNextPage ? $currentPage + 1 : null,
+            'numPages' => (int) ceil($numResults / $pageSize),
+            'haveToPaginate' => $numResults > $pageSize,
+        ];
     }
 
     /**
      * Returns the amount of audited entries/operations.
      *
-     * @param object|string   $entity
+     * @param string          $entity
      * @param null|int|string $id
      *
      * @throws AccessDeniedException
@@ -292,7 +298,7 @@ class AuditReader
      *
      * @return int
      */
-    public function getAuditsCount($entity, $id = null): int
+    public function getAuditsCount(string $entity, $id = null): int
     {
         $queryBuilder = $this->getAuditsQueryBuilder($entity, $id);
 
@@ -308,93 +314,15 @@ class AuditReader
     }
 
     /**
-     * Returns an array of audited entries/operations.
-     *
-     * @param object|string   $entity
-     * @param null|int|string $id
-     * @param null|int        $page
-     * @param null|int        $pageSize
-     * @param null|string     $transactionHash
-     * @param bool            $strict
-     *
-     * @throws AccessDeniedException
-     * @throws InvalidArgumentException
-     *
-     * @return QueryBuilder
-     */
-    private function getAuditsQueryBuilder($entity, $id = null, ?int $page = null, ?int $pageSize = null, ?string $transactionHash = null, bool $strict = true): QueryBuilder
-    {
-        $this->checkAuditable($entity);
-        $this->checkRoles($entity, Security::VIEW_SCOPE);
-
-        if (null !== $page && $page < 1) {
-            throw new \InvalidArgumentException('$page must be greater or equal than 1.');
-        }
-
-        if (null !== $pageSize && $pageSize < 1) {
-            throw new \InvalidArgumentException('$pageSize must be greater or equal than 1.');
-        }
-
-        $storage = $this->selectStorage();
-        $connection = $storage->getConnection();
-
-        $queryBuilder = $connection->createQueryBuilder();
-        $queryBuilder
-            ->select('*')
-            ->from($this->getEntityAuditTableName($entity), 'at')
-            ->orderBy('created_at', 'DESC')
-            ->addOrderBy('id', 'DESC')
-        ;
-
-        $metadata = $this->getClassMetadata($entity);
-        if ($strict && $metadata instanceof ORMMetadata && ORMMetadata::INHERITANCE_TYPE_SINGLE_TABLE === $metadata->inheritanceType) {
-            $queryBuilder
-                ->andWhere('discriminator = :discriminator')
-                ->setParameter('discriminator', \is_object($entity) ? \get_class($entity) : $entity)
-            ;
-        }
-
-        if (null !== $pageSize) {
-            $queryBuilder
-                ->setFirstResult(($page - 1) * $pageSize)
-                ->setMaxResults($pageSize)
-            ;
-        }
-
-        if (null !== $id) {
-            $queryBuilder
-                ->andWhere('object_id = :object_id')
-                ->setParameter('object_id', $id)
-            ;
-        }
-
-        if (null !== $this->filter) {
-            $queryBuilder
-                ->andWhere('type = :filter')
-                ->setParameter('filter', $this->filter)
-            ;
-        }
-
-        if (null !== $transactionHash) {
-            $queryBuilder
-                ->andWhere('transaction_hash = :transaction_hash')
-                ->setParameter('transaction_hash', $transactionHash)
-            ;
-        }
-
-        return $queryBuilder;
-    }
-
-    /**
-     * @param object|string $entity
-     * @param string        $id
+     * @param string $entity
+     * @param string $id
      *
      * @throws AccessDeniedException
      * @throws InvalidArgumentException
      *
      * @return mixed[]
      */
-    public function getAudit($entity, $id)
+    public function getAudit(string $entity, $id): array
     {
         $this->checkAuditable($entity);
         $this->checkRoles($entity, Security::VIEW_SCOPE);
@@ -412,16 +340,11 @@ class AuditReader
             ->setParameter('id', $id)
         ;
 
-        if (null !== $this->filter) {
-            $queryBuilder
-                ->andWhere('type = :filter')
-                ->setParameter('filter', $this->filter)
-            ;
-        }
+        $this->filterByType($queryBuilder, $this->filters);
 
         /** @var Statement $statement */
         $statement = $queryBuilder->execute();
-        $statement->setFetchMode(\PDO::FETCH_CLASS, AuditEntry::class);
+        $statement->setFetchMode(PDO::FETCH_CLASS, AuditEntry::class);
 
         return $statement->fetchAll();
     }
@@ -437,38 +360,33 @@ class AuditReader
     }
 
     /**
+
      * Returns the table name of $entity.
      *
-     * @param object|string $entity
+     * @param string $entity
      *
      * @return string
      */
-    public function getEntityTableName($entity): string
+    public function getEntityTableName(string $entity): string
     {
-        return $this->getClassMetadata($entity)->getTableName();
+        return $this->entityManager->getClassMetadata($entity)->getTableName();
     }
 
     /**
      * Returns the audit table name for $entity.
      *
-     * @param object|string $entity
+     * @param string $entity
      *
      * @return string
      */
-    public function getEntityAuditTableName($entity): string
+    public function getEntityAuditTableName(string $entity): string
     {
-        $entityName = \is_string($entity) ? $entity : \get_class($entity);
-        $schema = $this->getClassMetadata($entityName)->getSchemaName() ? $this->getClassMetadata($entityName)->getSchemaName().'.' : '';
+        $schema = '';
+        if ($this->entityManager->getClassMetadata($entity)->getSchemaName()) {
+            $schema = $this->entityManager->getClassMetadata($entity)->getSchemaName().'.';
+        }
 
-        return sprintf('%s%s%s%s', $schema, $this->configuration->getTablePrefix(), $this->getEntityTableName($entityName), $this->configuration->getTableSuffix());
-    }
-
-    /**
-     * @return EntityManagerInterface
-     */
-    private function selectStorage(): EntityManagerInterface
-    {
-        return $this->configuration->getEntityManager() ?? $this->entityManager;
+        return sprintf('%s%s%s%s', $schema, $this->configuration->getTablePrefix(), $this->getEntityTableName($entity), $this->configuration->getTableSuffix());
     }
 
     /**
@@ -479,14 +397,117 @@ class AuditReader
         return $this->entityManager;
     }
 
+    private function filterByType(QueryBuilder $queryBuilder, array $filters): QueryBuilder
+    {
+        if (!empty($filters)) {
+            $queryBuilder
+                ->andWhere('type IN (:filters)')
+                ->setParameter('filters', $filters, Connection::PARAM_STR_ARRAY)
+            ;
+        }
+
+        return $queryBuilder;
+    }
+
+    private function filterByTransaction(QueryBuilder $queryBuilder, ?string $transactionHash): QueryBuilder
+    {
+        if (null !== $transactionHash) {
+            $queryBuilder
+                ->andWhere('transaction_hash = :transaction_hash')
+                ->setParameter('transaction_hash', $transactionHash)
+            ;
+        }
+
+        return $queryBuilder;
+    }
+
+    /**
+     * @param QueryBuilder    $queryBuilder
+     * @param null|int|string $id
+     *
+     * @return QueryBuilder
+     */
+    private function filterByObjectId(QueryBuilder $queryBuilder, $id): QueryBuilder
+    {
+        if (null !== $id) {
+            $queryBuilder
+                ->andWhere('object_id = :object_id')
+                ->setParameter('object_id', $id)
+            ;
+        }
+
+        return $queryBuilder;
+    }
+
+    /**
+     * Returns an array of audited entries/operations.
+     *
+     * @param string          $entity
+     * @param null|int|string $id
+     * @param null|int        $page
+     * @param null|int        $pageSize
+     * @param null|string     $transactionHash
+     * @param bool            $strict
+     *
+     * @throws AccessDeniedException
+     * @throws InvalidArgumentException
+     *
+     * @return QueryBuilder
+     */
+    private function getAuditsQueryBuilder(string $entity, $id = null, ?int $page = null, ?int $pageSize = null, ?string $transactionHash = null, bool $strict = true): QueryBuilder
+    {
+        $this->checkAuditable($entity);
+        $this->checkRoles($entity, Security::VIEW_SCOPE);
+
+        if (null !== $page && $page < 1) {
+            throw new \InvalidArgumentException('$page must be greater or equal than 1.');
+        }
+
+        if (null !== $pageSize && $pageSize < 1) {
+            throw new \InvalidArgumentException('$pageSize must be greater or equal than 1.');
+        }
+
+        $storage = $this->configuration->getEntityManager() ?? $this->entityManager;
+        $connection = $storage->getConnection();
+
+        $queryBuilder = $connection->createQueryBuilder();
+        $queryBuilder
+            ->select('*')
+            ->from($this->getEntityAuditTableName($entity), 'at')
+            ->orderBy('created_at', 'DESC')
+            ->addOrderBy('id', 'DESC')
+        ;
+
+        $metadata = $this->entityManager->getClassMetadata($entity);
+        if ($strict && $metadata instanceof ORMMetadata && ORMMetadata::INHERITANCE_TYPE_SINGLE_TABLE === $metadata->inheritanceType) {
+            $queryBuilder
+                ->andWhere('discriminator = :discriminator')
+                ->setParameter('discriminator', $entity)
+            ;
+        }
+
+        $this->filterByObjectId($queryBuilder, $id);
+        $this->filterByType($queryBuilder, $this->filters);
+        $this->filterByTransaction($queryBuilder, $transactionHash);
+
+        if (null !== $pageSize) {
+            $queryBuilder
+                ->setFirstResult(($page - 1) * $pageSize)
+                ->setMaxResults($pageSize)
+            ;
+        }
+
+        return $queryBuilder;
+    }
+
     /**
      * Throws an InvalidArgumentException if given entity is not auditable.
      *
-     * @param object|string $entity
+     * @param string $entity
      *
      * @throws InvalidArgumentException
      */
-    private function checkAuditable($entity): void
+    private function checkAuditable(string $entity): void
     {
         if (!$this->configuration->isAuditable($entity)) {
             throw new InvalidArgumentException('Entity '.$entity.' is not auditable.');
@@ -496,12 +517,12 @@ class AuditReader
     /**
      * Throws an AccessDeniedException if user not is granted to access audits for the given entity.
      *
-     * @param object|string $entity
-     * @param string        $scope
+     * @param string $entity
+     * @param string $scope
      *
      * @throws AccessDeniedException
      */
-    private function checkRoles($entity, string $scope): void
+    private function checkRoles(string $entity, string $scope): void
     {
         $userProvider = $this->configuration->getUserProvider();
         $user = null === $userProvider ? null : $userProvider->getUser();

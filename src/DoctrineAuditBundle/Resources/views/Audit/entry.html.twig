@@ -1,5 +1,5 @@
-{% import '@DHDoctrineAudit/Audit/bootstrap.html.twig' as bootstrap %}
-{% import '@DHDoctrineAudit/Audit/helper.html.twig' as helper %}
+{% import '@DHDoctrineAudit/Audit/helpers/bootstrap.html.twig' as bootstrap %}
+{% import '@DHDoctrineAudit/Audit/helpers/helper.html.twig' as helper %}
 
 <article class="timeline-entry">
     <div class="timeline-entry-inner">
@@ -23,8 +23,8 @@
                 </div>
                 <div class="col-lg-1" align="center">{{ bootstrap.badge(entry.type, bootstrap.label_type(entry.type)) }}</div>
             </div>
-            {% if entry.type in ['insert', 'update', 'remove'] %}
-                <table class="table table-hover table-sm mt-2 mb-0">
+            {% if entry.type in ['insert', 'update', 'remove' %}
+                <table class="table table-hover layout-fixed table-sm mt-2 mb-0">
                     <thead class="thead-light">
                     <th width="30%">Property</th>
                     <th width="35%">Old value</th>

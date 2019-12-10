@@ -2,6 +2,7 @@
 
 namespace DH\DoctrineAuditBundle\Tests\Reader;
 
+use DateTime;
 use DH\DoctrineAuditBundle\AuditConfiguration;
 use DH\DoctrineAuditBundle\Reader\AuditEntry;
 use DH\DoctrineAuditBundle\Reader\AuditReader;
@@ -12,7 +13,7 @@ use DH\DoctrineAuditBundle\Tests\Fixtures\Core\Standard\Author;
 use DH\DoctrineAuditBundle\Tests\Fixtures\Core\Standard\Comment;
 use DH\DoctrineAuditBundle\Tests\Fixtures\Core\Standard\Post;
 use DH\DoctrineAuditBundle\Tests\Fixtures\Core\Standard\Tag;
-use Pagerfanta\Pagerfanta;
+use InvalidArgumentException;
 
 /**
  * @internal
@@ -23,37 +24,53 @@ final class AuditReaderTest extends CoreTest
     {
         $reader = $this->getReader();
 
-        static::assertInstanceOf(AuditConfiguration::class, $reader->getConfiguration(), 'configuration instanceof AuditConfiguration::class');
+        self::assertInstanceOf(AuditConfiguration::class, $reader->getConfiguration(), 'configuration instanceof AuditConfiguration::class');
     }
 
-    public function testFilterIsNullByDefault(): void
+    public function testFilterIsEmptyByDefault(): void
     {
         $reader = $this->getReader();
 
-        static::assertNull($reader->getFilter(), 'filter is null by default.');
+        self::assertSame([], $reader->getFilters(), 'filters is empty by default.');
     }
 
-    public function testFilterCanOnlyBePartOfAllowedValues(): void
+    public function testFilterIsEmptyIfNotPartOfAllowedValues(): void
     {
         $reader = $this->getReader();
 
         $reader->filterBy('UNKNOWN');
-        static::assertNull($reader->getFilter(), 'filter is null when AuditReader::filterBy() parameter is not an allowed value.');
+        self::assertSame([], $reader->getFilters(), 'filters is empty when AuditReader::filterBy() parameter is not an allowed value.');
+
+        $reader->filterBy(['UNKNOWN1', 'UNKNOWN2']);
+        self::assertSame([], $reader->getFilters(), 'filters is empty when AuditReader::filterBy() parameter is not an allowed value.');
+    }
+
+    public function testFilterSingleValue(): void
+    {
+        $reader = $this->getReader();
 
         $reader->filterBy(AuditReader::ASSOCIATE);
-        static::assertSame(AuditReader::ASSOCIATE, $reader->getFilter(), 'filter is not null when AuditReader::filterBy() parameter is an allowed value.');
+        self::assertSame([AuditReader::ASSOCIATE], $reader->getFilters(), 'filter is not empty when AuditReader::filterBy() parameter is an allowed value.');
 
         $reader->filterBy(AuditReader::DISSOCIATE);
-        static::assertSame(AuditReader::DISSOCIATE, $reader->getFilter(), 'filter is not null when AuditReader::filterBy() parameter is an allowed value.');
+        self::assertSame([AuditReader::DISSOCIATE], $reader->getFilters(), 'filter is not empty when AuditReader::filterBy() parameter is an allowed value.');
 
         $reader->filterBy(AuditReader::INSERT);
-        static::assertSame(AuditReader::INSERT, $reader->getFilter(), 'filter is not null when AuditReader::filterBy() parameter is an allowed value.');
+        self::assertSame([AuditReader::INSERT], $reader->getFilters(), 'filter is not empty when AuditReader::filterBy() parameter is an allowed value.');
 
         $reader->filterBy(AuditReader::REMOVE);
-        static::assertSame(AuditReader::REMOVE, $reader->getFilter(), 'filter is not null when AuditReader::filterBy() parameter is an allowed value.');
+        self::assertSame([AuditReader::REMOVE], $reader->getFilters(), 'filter is not empty when AuditReader::filterBy() parameter is an allowed value.');
 
         $reader->filterBy(AuditReader::UPDATE);
-        static::assertSame(AuditReader::UPDATE, $reader->getFilter(), 'filter is not null when AuditReader::filterBy() parameter is an allowed value.');
+        self::assertSame([AuditReader::UPDATE], $reader->getFilters(), 'filter is not empty when AuditReader::filterBy() parameter is an allowed value.');
+    }
+
+    public function testFilterMultipleValues(): void
+    {
+        $reader = $this->getReader();
+
+        $reader->filterBy([AuditReader::ASSOCIATE, AuditReader::DISSOCIATE]);
+        self::assertSame([AuditReader::ASSOCIATE, AuditReader::DISSOCIATE], $reader->getFilters(), 'filter is not null when AuditReader::filterBy() parameter is composed of allowed value.');
     }
 
     public function testGetEntityTableName(): void
@@ -69,8 +86,8 @@ final class AuditReaderTest extends CoreTest
 
         $reader = $this->getReader($configuration);
 
-        static::assertSame('post', $reader->getEntityTableName(Post::class), 'tablename is ok.');
-        static::assertSame('comment', $reader->getEntityTableName(Comment::class), 'tablename is ok.');
+        self::assertSame('post', $reader->getEntityTableName(Post::class), 'tablename is ok.');
+        self::assertSame('comment', $reader->getEntityTableName(Comment::class), 'tablename is ok.');
     }
 
     public function testGetEntityTableAuditName(): void
@@ -86,8 +103,8 @@ final class AuditReaderTest extends CoreTest
 
         $reader = $this->getReader($configuration);
 
-        static::assertSame('post_audit', $reader->getEntityAuditTableName(Post::class), 'tablename is ok.');
-        static::assertSame('comment_audit', $reader->getEntityAuditTableName(Comment::class), 'tablename is ok.');
+        self::assertSame('post_audit', $reader->getEntityAuditTableName(Post::class), 'tablename is ok.');
+        self::assertSame('comment_audit', $reader->getEntityAuditTableName(Comment::class), 'tablename is ok.');
     }
 
     /**
@@ -114,7 +131,7 @@ final class AuditReaderTest extends CoreTest
 
         $reader = $this->getReader($configuration);
 
-        static::assertSame($expected, $reader->getEntities(), 'entities are sorted.');
+        self::assertSame($expected, $reader->getEntities(), 'entities are sorted.');
     }
 
     public function testGetAudits(): void
@@ -125,67 +142,65 @@ final class AuditReaderTest extends CoreTest
         $audits = $reader->getAudits(Author::class, null, 1, 50);
 
         $i = 0;
-        static::assertCount(5, $audits, 'result count is ok.');
-        static::assertSame(AuditReader::REMOVE, $audits[$i++]->getType(), 'entry'.$i.' is a remove operation.');
-        static::assertSame(AuditReader::UPDATE, $audits[$i++]->getType(), 'entry'.$i.' is an update operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertCount(5, $audits, 'result count is ok.');
+        self::assertSame(AuditReader::REMOVE, $audits[$i++]->getType(), 'entry'.$i.' is a remove operation.');
+        self::assertSame(AuditReader::UPDATE, $audits[$i++]->getType(), 'entry'.$i.' is an update operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Post::class, null, 1, 50);
 
         $i = 0;
-        static::assertCount(15, $audits, 'result count is ok.');
-        static::assertSame(AuditReader::UPDATE, $audits[$i++]->getType(), 'entry'.$i.' is an update operation.');
-        static::assertSame(AuditReader::DISSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is a dissociate operation.');
-        static::assertSame(AuditReader::DISSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is a dissociate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertCount(15, $audits, 'result count is ok.');
+        self::assertSame(AuditReader::UPDATE, $audits[$i++]->getType(), 'entry'.$i.' is an update operation.');
+        self::assertSame(AuditReader::DISSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is a dissociate operation.');
+        self::assertSame(AuditReader::DISSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is a dissociate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Comment::class, null, 1, 50);
 
         $i = 0;
-        static::assertCount(3, $audits, 'result count is ok.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertCount(3, $audits, 'result count is ok.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Tag::class, null, 1, 50);
 
         $i = 0;
-//        $this->assertCount(14, $audits, 'result count is ok.');
-        static::assertCount(15, $audits, 'result count is ok.');
-//        $this->assertCount(12, $audits, 'result count is ok.');
-        static::assertSame(AuditReader::DISSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is a dissociate operation.');
-        static::assertSame(AuditReader::DISSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is a dissociate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
-        static::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertCount(15, $audits, 'result count is ok.');
+        self::assertSame(AuditReader::DISSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is a dissociate operation.');
+        self::assertSame(AuditReader::DISSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is a dissociate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::ASSOCIATE, $audits[$i++]->getType(), 'entry'.$i.' is an associate operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
+        self::assertSame(AuditReader::INSERT, $audits[$i++]->getType(), 'entry'.$i.' is an insert operation.');
 
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgumentException::class);
         $reader->getAudits(Post::class, null, 0, 50);
         $reader->getAudits(Post::class, null, -1, 50);
     }
@@ -197,8 +212,8 @@ final class AuditReaderTest extends CoreTest
         /** @var AuditEntry[] $audits */
         $pager = $reader->getAuditsPager(Author::class, null, 1, 3);
 
-        static::assertInstanceOf(Pagerfanta::class, $pager, 'pager is a Pagerfanta instance.');
-        static::assertTrue($pager->haveToPaginate(), 'pager has to paginate.');
+        self::assertIsArray($pager);
+        self::assertTrue($pager['haveToPaginate'], 'pager has to paginate.');
     }
 
     public function testGetAuditsCount(): void
@@ -208,7 +223,7 @@ final class AuditReaderTest extends CoreTest
         /** @var AuditEntry[] $audits */
         $count = $reader->getAuditsCount(Author::class, null);
 
-        static::assertSame(5, $count, 'count is ok.');
+        self::assertSame(5, $count, 'count is ok.');
     }
 
     /**
@@ -221,21 +236,21 @@ final class AuditReaderTest extends CoreTest
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Author::class, 1, 1, 50);
 
-        static::assertCount(2, $audits, 'result count is ok.');
+        self::assertCount(2, $audits, 'result count is ok.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Post::class, 1, 1, 50);
 
-        static::assertCount(3, $audits, 'result count is ok.');
+        self::assertCount(3, $audits, 'result count is ok.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Comment::class, 1, 1, 50);
 
-        static::assertCount(1, $audits, 'result count is ok.');
+        self::assertCount(1, $audits, 'result count is ok.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Post::class, 0, 1, 50);
-        static::assertSame([], $audits, 'no result when id is invalid.');
+        self::assertSame([], $audits, 'no result when id is invalid.');
     }
 
     /**
@@ -248,19 +263,19 @@ final class AuditReaderTest extends CoreTest
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Author::class, null, 1, 2);
 
-        static::assertCount(2, $audits, 'result count is ok.');
+        self::assertCount(2, $audits, 'result count is ok.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Author::class, null, 2, 2);
 
-        static::assertCount(2, $audits, 'result count is ok.');
+        self::assertCount(2, $audits, 'result count is ok.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Author::class, null, 3, 2);
 
-        static::assertCount(1, $audits, 'result count is ok.');
+        self::assertCount(1, $audits, 'result count is ok.');
 
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgumentException::class);
         $reader->getAudits(Post::class, null, 1, 0);
         $reader->getAudits(Post::class, null, 1, -1);
     }
@@ -275,27 +290,27 @@ final class AuditReaderTest extends CoreTest
         /** @var AuditEntry[] $audits */
         $audits = $reader->filterBy(AuditReader::UPDATE)->getAudits(Author::class, null, 1, 50);
 
-        static::assertCount(1, $audits, 'result count is ok.');
+        self::assertCount(1, $audits, 'result count is ok.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->filterBy(AuditReader::INSERT)->getAudits(Author::class, null, 1, 50);
 
-        static::assertCount(3, $audits, 'result count is ok.');
+        self::assertCount(3, $audits, 'result count is ok.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->filterBy(AuditReader::REMOVE)->getAudits(Author::class, null, 1, 50);
 
-        static::assertCount(1, $audits, 'result count is ok.');
+        self::assertCount(1, $audits, 'result count is ok.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->filterBy(AuditReader::ASSOCIATE)->getAudits(Author::class, null, 1, 50);
 
-        static::assertCount(0, $audits, 'result count is ok.');
+        self::assertCount(0, $audits, 'result count is ok.');
 
         /** @var AuditEntry[] $audits */
         $audits = $reader->filterBy(AuditReader::DISSOCIATE)->getAudits(Author::class, null, 1, 50);
 
-        static::assertCount(0, $audits, 'result count is ok.');
+        self::assertCount(0, $audits, 'result count is ok.');
     }
 
     /**
@@ -307,7 +322,7 @@ final class AuditReaderTest extends CoreTest
 
         $audits = $reader->getAudit(Author::class, 1);
 
-        static::assertCount(1, $audits, 'result count is ok.');
+        self::assertCount(1, $audits, 'result count is ok.');
     }
 
     /**
@@ -319,7 +334,7 @@ final class AuditReaderTest extends CoreTest
 
         $audits = $reader->filterBy(AuditReader::UPDATE)->getAudit(Author::class, 1);
 
-        static::assertCount(0, $audits, 'result count is ok.');
+        self::assertCount(0, $audits, 'result count is ok.');
     }
 
     public function testGetAuditByTransactionHash(): void
@@ -339,7 +354,7 @@ final class AuditReaderTest extends CoreTest
             ->setAuthor($author)
             ->setTitle('First post')
             ->setBody('Here is the body')
-            ->setCreatedAt(new \DateTime())
+            ->setCreatedAt(new DateTime())
         ;
 
         $post2 = new Post();
@@ -347,7 +362,7 @@ final class AuditReaderTest extends CoreTest
             ->setAuthor($author)
             ->setTitle('Second post')
             ->setBody('Here is another body')
-            ->setCreatedAt(new \DateTime())
+            ->setCreatedAt(new DateTime())
         ;
 
         $em->persist($post1);
@@ -361,7 +376,7 @@ final class AuditReaderTest extends CoreTest
         /** @var AuditEntry[] $audits */
         $audits = $reader->getAudits(Post::class, null, null, null, $hash);
 
-        static::assertCount(2, $audits, 'result count is ok.');
+        self::assertCount(2, $audits, 'result count is ok.');
     }
 
     public function testGetAllAuditsByTransactionHash(): void
@@ -381,7 +396,7 @@ final class AuditReaderTest extends CoreTest
             ->setAuthor($author)
             ->setTitle('First post')
             ->setBody('Here is the body')
-            ->setCreatedAt(new \DateTime())
+            ->setCreatedAt(new DateTime())
         ;
 
         $post2 = new Post();
@@ -389,7 +404,7 @@ final class AuditReaderTest extends CoreTest
             ->setAuthor($author)
             ->setTitle('Second post')
             ->setBody('Here is another body')
-            ->setCreatedAt(new \DateTime())
+            ->setCreatedAt(new DateTime())
         ;
 
         $em->persist($post1);
@@ -406,8 +421,8 @@ final class AuditReaderTest extends CoreTest
         $reader = $this->getReader($this->getAuditConfiguration());
         $audits = $reader->getAuditsByTransactionHash($hash);
 
-        static::assertCount(2, $audits, 'AuditReader::getAllAuditsByTransactionHash() is ok.');
-        static::assertCount(1, $audits[Author::class], 'AuditReader::getAllAuditsByTransactionHash() is ok.');
-        static::assertCount(2, $audits[Post::class], 'AuditReader::getAllAuditsByTransactionHash() is ok.');
+        self::assertCount(2, $audits, 'AuditReader::getAllAuditsByTransactionHash() is ok.');
+        self::assertCount(1, $audits[Author::class], 'AuditReader::getAllAuditsByTransactionHash() is ok.');
+        self::assertCount(2, $audits[Post::class], 'AuditReader::getAllAuditsByTransactionHash() is ok.');
     }
 }
