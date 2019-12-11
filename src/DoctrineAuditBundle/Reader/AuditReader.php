@@ -196,7 +196,7 @@ class AuditReader
             }
         }
 
-        $storage = $this->selectStorage();$connection = $storage->getConnection();
+        $connection = $this->getEntityManager()->getConnection();
         $sql = $this->unionAllQueryBuilders($queryBuilders);
         if ($page && $pageSize) {
             $offset = $page*$pageSize;
