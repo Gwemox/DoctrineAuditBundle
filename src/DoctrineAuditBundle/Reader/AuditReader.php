@@ -183,15 +183,17 @@ class AuditReader
                 $targetMeta = $this->getClassMetadata($targetClass);
                 if ($targetMeta->hasField('id')) {
                     $mappedBy = $meta->getAssociationMappedByTargetField($associationName);
-                    $columnName = $targetMeta->getSingleAssociationJoinColumnName($mappedBy);
-                    $tableName = $this->getEntityTableName($targetClass);
-                    $qb = $this->getAuditsQueryBuilder($targetClass, null, null, null, $transactionHash, $strict);
-                    $qb->addSelect("'$targetClass' as class");
-                    $qb
-                        ->andWhere("object_id IN (SELECT CAST(subQuery.id as VARCHAR) FROM $tableName subQuery WHERE subQuery.$columnName = :object_id) OR diffs -> '$mappedBy' -> 'old' ->> 'id' = :object_id OR diffs -> '$mappedBy' -> 'new' ->> 'id' = :object_id")
-                    ;
-                    //dump($qb->getSQL());
-                    $queryBuilders[] = $qb;
+                    if ($targetMeta->isAssociationWithSingleJoinColumn($mappedBy)) {
+                        $columnName = $targetMeta->getSingleAssociationJoinColumnName($mappedBy);
+                        $tableName = $this->getEntityTableName($targetClass);
+                        $qb = $this->getAuditsQueryBuilder($targetClass, null, null, null, $transactionHash, $strict);
+                        $qb->addSelect("'$targetClass' as class");
+                        $qb
+                            ->andWhere("object_id IN (SELECT CAST(subQuery.id as VARCHAR) FROM $tableName subQuery WHERE subQuery.$columnName = :object_id) OR diffs -> '$mappedBy' -> 'old' ->> 'id' = :object_id OR diffs -> '$mappedBy' -> 'new' ->> 'id' = :object_id")
+                        ;
+                        //dump($qb->getSQL());
+                        $queryBuilders[] = $qb;
+                    }
                 }
             }
         }
